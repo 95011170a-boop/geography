@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>豪華抽牌點數累積遊戲</title>
+    <!-- 載入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 使用 Inter 字體 -->
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            /* 調整為更柔和、不雜亂的背景色 */
+            background: linear-gradient(135deg, #FEE140 0%, #FA709A 100%); /* 較柔和的色彩背景 (金橙到粉紅) */
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+            overflow: hidden; /* 防止滾動條影響 Modal */
+        }
+        .game-card {
+            background-color: #ffffff;
+            border: 8px solid #FFD700; /* 豪華邊框 */
+        }
+        /* 定義按鈕樣式 */
+        .btn-draw {
+            @apply w-full px-8 py-4 text-2xl bg-red-600 text-white font-extrabold rounded-2xl shadow-[0_8px_0_0_#9A3200] hover:bg-red-700 transition duration-150 transform hover:translate-y-1 hover:shadow-[0_4px_0_0_#9A3200] focus:outline-none focus:ring-4 focus:ring-red-300;
+        }
+        /* 點數顯示樣式 */
+        .points-display {
+            @apply text-4xl font-extrabold text-white p-4 rounded-xl shadow-lg border-4 border-yellow-300 bg-red-500;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        /* 抽牌結果卡片 */
+        .result-box {
+            @apply p-6 rounded-xl shadow-2xl transition-all duration-500 min-h-[8rem] flex flex-col items-center justify-center space-y-2;
+        }
+        
+        /* 牌面顯示 */
+        .card-display {
+            @apply w-24 h-36 border-4 rounded-xl flex flex-col items-center justify-center shadow-xl bg-white text-6xl font-black transition-all duration-300 ease-in-out;
+        }
+        
+        /* Modal 樣式 */
+        .modal {
+            background-color: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(5px);
+        }
+        .modal-content {
+            background: linear-gradient(to top, #4F46E5, #8B5CF6); /* 紫藍色調 */
+            border: 6px solid #FFD700;
+            animation: phoneSlide 0.5s ease-out;
+        }
+        
+        /* 中獎 Modal 樣式 */
+        #winModal .modal-content {
+            background: linear-gradient(to top, #FFD700, #FFA500); /* 亮金色調 */
+            border: 8px solid #FF4500;
+            animation: pulse 1s infinite alternate;
+            box-shadow: 0 0 50px rgba(255, 69, 0, 0.9);
+        }
+        
+        @keyframes phoneSlide {
+            from { transform: translateY(100vh) scale(0.5); opacity: 0; }
+            to { transform: translateY(0) scale(1); opacity: 1; }
+        }
+        @keyframes pulse {
+            from { transform: scale(1); box-shadow: 0 0 50px rgba(255, 69, 0, 0.9); }
+            to { transform: scale(1.05); box-shadow: 0 0 70px rgba(255, 215, 0, 0.9); }
+        }
+        
+        /* 刮刮樂 Canvas */
+        #scratchCanvas {
+            touch-action: none; /* 禁用瀏覽器默認的觸控行為 */
+        }
+    </style>
+</head>
+<body>
+
+    <div class="w-full max-w-lg game-card rounded-3xl shadow-2xl p-6 md:p-10 space-y-8">
+
+        <h1 class="text-4xl font-extrabold text-center text-gray-800 pb-4 border-b-4 border-red-500">
+            🃏 幸運抽牌大獎賽 💰
+        </h1>
+        
+        <!-- 點數累積區塊 -->
+        <div class="flex flex-col items-center space-y-4">
+            <p class="text-xl font-semibold text-gray-700">點數累積 <span class="font-bold text-red-600">(目標：2 點)</span></p>
+            <div id="currentPointsDisplay" class="points-display">
+                0 點
+            </div>
+            <p class="text-sm text-gray-500">（抽到 A~9 牌可獲得 1 點）</p>
+        </div>
+
+        <!-- 單次抽牌結果顯示 -->
+        <div id="drawResultBox" class="result-box bg-gray-100 text-gray-700 text-xl font-medium">
+            點擊下方按鈕，抽一張幸運卡牌！
+        </div>
+
+        <!-- 抽牌按鈕 -->
+        <button id="drawButton" class="btn-draw" onclick="drawSingleCard()">
+            立即抽牌！ 🎉
+        </button>
+
+    </div>
+
+    <!-- 1. 比大小 Modal -->
+    <div id="comparisonModal" class="modal fixed inset-0 flex items-center justify-center p-4 hidden z-50">
+        <div class="modal-content w-full max-w-md p-8 rounded-3xl shadow-2xl space-y-6">
+            <h2 class="text-3xl font-extrabold text-center text-yellow-300">
+                📱 點數目標達成！加碼挑戰！ 📱
+            </h2>
+            <p class="text-xl text-center font-semibold text-white">
+                您已累積 <span id="modalPoints" class="text-yellow-300 font-extrabold">2</span> 點！
+                <br>
+                贏了比大小，刮刮樂大獎等你！
+            </p>
+            
+            <!-- 比大小顯示 -->
+            <div class="flex justify-around items-center space-x-4 p-4 rounded-xl bg-white/10 shadow-inner">
+                <div class="text-center">
+                    <span class="block font-semibold mb-2 text-lg text-yellow-300">您的牌</span>
+                    <div id="playerCard" class="card-display border-yellow-300 text-red-600">?</div>
+                </div>
+                <span class="text-6xl font-black text-white">VS</span>
+                <div class="text-center">
+                    <span class="block font-semibold mb-2 text-lg text-yellow-300">電腦的牌</span>
+                    <div id="computerCard" class="card-display border-yellow-300 text-blue-600">?</div>
+                </div>
+            </div>
+
+            <div id="comparisonResultText" class="text-center text-xl font-bold p-3 rounded-lg bg-white text-gray-800 shadow-inner">
+                點擊下方按鈕，決定勝負！
+            </div>
+
+            <button id="startCompareButton" class="w-full px-6 py-3 bg-green-500 text-white font-extrabold rounded-xl shadow-[0_5px_0_0_#1E8449] hover:bg-green-600 transition duration-150 transform hover:translate-y-0.5" onclick="startComparison()">
+                開始比大小！
+            </button>
+            <button id="comparisonCloseButton" class="w-full px-6 py-3 bg-gray-500 text-white font-bold rounded-xl hover:bg-gray-600 hidden" onclick="closeAllModals('比大小挑戰已完成。')">
+                繼續遊戲
+            </button>
+        </div>
+    </div>
+    
+    <!-- 2. 刮刮樂 Modal (互動式) -->
+    <div id="scratchModal" class="modal fixed inset-0 flex items-center justify-center p-4 hidden z-50">
+        <div class="modal-content w-full max-w-md p-8 rounded-3xl shadow-2xl space-y-6">
+            <h2 class="text-3xl font-extrabold text-center text-yellow-300">
+                ✨ 恭喜獲勝！請刮開獎券 ✨
+            </h2>
+            <p class="text-lg text-center font-semibold text-white">
+                刮開塗層，看看您中了什麼大獎！
+            </p>
+            
+            <div class="bg-white/10 p-2 rounded-xl shadow-inner">
+                <div class="relative w-full aspect-video rounded-lg overflow-hidden">
+                    <!-- 顯示獎勵結果的底層 -->
+                    <div id="prizeDisplay" class="absolute inset-0 flex items-center justify-center text-center p-4">
+                        <span class="text-4xl font-black text-red-700">刮開中...</span>
+                    </div>
+                    <!-- 刮刮樂 Canvas 覆蓋層 -->
+                    <canvas id="scratchCanvas" class="absolute inset-0"></canvas>
+                </div>
+            </div>
+
+            <button id="scratchCloseButton" class="w-full px-6 py-3 bg-gray-500 text-white font-bold rounded-xl hover:bg-gray-600 hidden" onclick="closeAllModals('刮刮樂挑戰已完成。')">
+                關閉獎券，繼續遊戲
+            </button>
+        </div>
+    </div>
+    
+    <!-- 3. 豪華中獎 Modal (視覺慶祝) -->
+    <div id="winModal" class="modal fixed inset-0 flex items-center justify-center p-4 hidden z-50">
+        <div class="modal-content w-full max-w-lg p-12 rounded-3xl shadow-2xl space-y-8 text-center">
+            <h2 class="text-6xl font-black text-red-700">
+                🎉 恭喜中大獎 🎉
+            </h2>
+            <p class="text-3xl font-extrabold text-white" id="winPrizeText">
+                您獲得了...
+            </p>
+            
+            <div class="p-4 bg-white/30 rounded-xl">
+                <p class="text-7xl font-black text-red-600 animate-bounce" id="winAmount">$60,000</p>
+            </div>
+            
+            <button class="w-full px-6 py-3 bg-red-600 text-white font-extrabold rounded-xl shadow-[0_5px_0_0_#9A3200] hover:bg-red-700 transition" onclick="closeAllModals('中大獎！遊戲真好玩！')">
+                太棒了！領獎去！
+            </button>
+        </div>
+    </div>
+    
+    <script>
+        // DOM 元素獲取
+        const DOM = {
+            drawButton: document.getElementById('drawButton'),
+            drawResultBox: document.getElementById('drawResultBox'),
+            currentPointsDisplay: document.getElementById('currentPointsDisplay'),
+            
+            // 1. Comparison Modal
+            comparisonModal: document.getElementById('comparisonModal'),
+            compModalContent: document.querySelector('#comparisonModal > div'),
+            modalPoints: document.getElementById('modalPoints'),
+            playerCard: document.getElementById('playerCard'),
+            computerCard: document.getElementById('computerCard'),
+            comparisonResultText: document.getElementById('comparisonResultText'),
+            startCompareButton: document.getElementById('startCompareButton'),
+            comparisonCloseButton: document.getElementById('comparisonCloseButton'),
+
+            // 2. Scratch Modal
+            scratchModal: document.getElementById('scratchModal'),
+            prizeDisplay: document.getElementById('prizeDisplay'),
+            scratchCanvas: document.getElementById('scratchCanvas'),
+            scratchCloseButton: document.getElementById('scratchCloseButton'),
+            
+            // 3. Win Modal
+            winModal: document.getElementById('winModal'),
+            winPrizeText: document.getElementById('winPrizeText'),
+            winAmount: document.getElementById('winAmount'),
+        };
+
+        // 遊戲狀態變數
+        const POINT_GOAL = 2; // 點數目標 (已從 5 點修改為 2 點)
+        let currentPoints = 0;
+        let isDrawing = false; // 防止重複點擊
+        let prizeWon = null; // 儲存刮刮樂結果
+
+        // Canvas 刮刮樂狀態
+        let ctx, isScratching = false;
+        const SCRATCH_THRESHOLD = 0.5; // 50% 的區域被刮開即視為完成
+
+        // 牌面數值對應 (A 最大)
+        const CARD_RANKS = {
+            14: { name: 'A', value: 14 },
+            13: { name: 'K', value: 13 },
+            12: { name: 'Q', value: 12 },
+            11: { name: 'J', value: 11 },
+            10: { name: '10', value: 10 },
+            9: { name: '9', value: 9 },
+            8: { name: '8', value: 8 },
+            7: { name: '7', value: 7 },
+            6: { name: '6', value: 6 },
+            5: { name: '5', value: 5 },
+            4: { name: '4', value: 4 },
+            3: { name: '3', value: 3 },
+            2: { name: '2', value: 2 }
+        };
+        
+        // 牌面權重定義 (同上，52張牌組)
+        const deck = [14, 14, 14, 14, 12, 12, 12, 12, 11, 11, 11, 11, 10, 10, 10, 10, 13, 13, 13, 13];
+        for (let rank = 2; rank <= 9; rank++) { for (let i = 0; i < 4; i++) deck.push(rank); }
+
+        // 刮刮樂獎勵機率 (總和需為 100%)
+        const SCRATCH_PRIZES = [
+            { name: '🥇 一等獎 ($60,000)', prob: 0.1, color: 'bg-red-600', isBigWin: true, amount: '60,000' }, 
+            { name: '🥈 二等獎 ($40,000)', prob: 0.2, color: 'bg-orange-500', isBigWin: true, amount: '40,000' },
+            { name: '🥉 三等獎 (出國住宿禮券)', prob: 0.7, color: 'bg-yellow-500', isBigWin: true, amount: '禮券' },
+            { name: '🏅 四等獎 ($1,000)', prob: 10.0, color: 'bg-green-500', isBigWin: false },
+            { name: '💔 銘謝惠顧', prob: 89.0, color: 'bg-gray-300', isBigWin: false }
+        ];
+
+        // --- 核心遊戲流程函數 ---
+
+        /**
+         * 關閉所有 Modal，並重置主遊戲狀態
+         * Closes all modals and resets the main game state.
+         */
+        window.closeAllModals = function(message) {
+            // 關閉所有 Modal
+            DOM.comparisonModal.classList.add('hidden');
+            DOM.scratchModal.classList.add('hidden');
+            DOM.winModal.classList.add('hidden');
+            
+            // 重新啟用主遊戲按鈕
+            DOM.drawButton.disabled = false;
+            
+            // 更新點數顯示
+            updatePointsDisplay();
+            
+            // 更新主畫面的結果提示
+            DOM.drawResultBox.className = 'result-box bg-yellow-100 text-yellow-800 text-lg font-bold';
+            DOM.drawResultBox.innerHTML = message + '<br>點數已重置，請繼續抽牌。';
+        }
+
+
+        /**
+         * 更新點數顯示並檢查是否達標
+         * Updates the point display and checks if the goal has been reached.
+         */
+        function updatePointsDisplay() {
+            DOM.currentPointsDisplay.textContent = `${currentPoints} 點`;
+            if (currentPoints >= POINT_GOAL) {
+                DOM.modalPoints.textContent = currentPoints;
+                launchComparisonModal();
+            }
+        }
+
+        /**
+         * 執行一次抽牌模擬
+         * Executes a single card draw simulation.
+         */
+        window.drawSingleCard = function() {
+            if (isDrawing || currentPoints >= POINT_GOAL) {
+                DOM.drawResultBox.className = 'result-box bg-yellow-100 text-yellow-800 text-lg font-bold';
+                DOM.drawResultBox.innerHTML = currentPoints >= POINT_GOAL ? '請先完成比大小遊戲！' : '請稍候...';
+                return;
+            }
+            isDrawing = true;
+            
+            // 模擬抽牌動畫延遲
+            DOM.drawResultBox.innerHTML = '<span class="text-3xl font-extrabold text-orange-500">正在抽牌...</span>';
+
+            setTimeout(() => {
+                const randomIndex = Math.floor(Math.random() * deck.length);
+                const cardValue = deck[randomIndex];
+                const cardData = CARD_RANKS[cardValue];
+
+                let resultHTML = '';
+                
+                // 根據牌面類型給予獎勵
+                if ([12, 11].includes(cardValue)) { // Q/J (獎勵牌)
+                    const prizeName = cardValue === 12 ? '麥當勞套餐' : '神秘禮物';
+                    const color = cardValue === 12 ? 'red' : 'purple';
+                    // Note: 'purple' is not a default Tailwind color, ensuring 'red' or 'blue' is used for consistency.
+                    const colorClass = cardValue === 12 ? 'red' : 'indigo'; 
+
+                    resultHTML = `
+                        <span class="text-6xl text-${colorClass}-600 font-extrabold">${cardData.name}</span>
+                        <p class="text-2xl font-bold text-${colorClass}-800">🎉 恭喜！獲得 ${prizeName}！</p>
+                    `;
+                    DOM.drawResultBox.className = `result-box bg-${colorClass}-100 border-4 border-${colorClass}-500`;
+                } else if ([14, 2, 3, 4, 5, 6, 7, 8, 9].includes(cardValue)) { // A~9 (點數牌)
+                    const text = cardValue === 14 ? '水果一盒' : '獲得';
+                    const icon = cardValue === 14 ? '🍎' : '✅';
+                    resultHTML = `
+                        <span class="text-6xl text-blue-600 font-extrabold">${cardData.name}</span>
+                        <p class="text-xl font-bold text-green-800">${icon} ${text}！</p>
+                        <p class="text-2xl font-bold text-blue-800">+ 1 點</p>
+                    `;
+                    DOM.drawResultBox.className = 'result-box bg-blue-100 border-4 border-blue-500';
+                    currentPoints += 1;
+                } else { // 10, K (未中獎)
+                    resultHTML = `
+                        <span class="text-6xl text-gray-400 font-extrabold">${cardData.name}</span>
+                        <p class="text-xl font-bold text-gray-600">很遺憾，本次未中獎。</p>
+                    `;
+                    DOM.drawResultBox.className = 'result-box bg-gray-100 border-4 border-gray-300';
+                }
+                
+                DOM.drawResultBox.innerHTML = resultHTML;
+                isDrawing = false;
+                updatePointsDisplay();
+            }, 800); // 模擬抽牌延遲
+        }
+        
+        // --- 點數達標及比大小遊戲邏輯 ---
+
+        /**
+         * 顯示比大小遊戲的 Modal。
+         * Displays the card comparison modal.
+         */
+        function launchComparisonModal() {
+            DOM.comparisonModal.classList.remove('hidden');
+            DOM.compModalContent.classList.remove('scale-95', 'opacity-0');
+            DOM.compModalContent.classList.add('scale-100', 'opacity-100');
+            
+            // 重置比大小遊戲介面
+            DOM.playerCard.textContent = '?';
+            DOM.playerCard.className = 'card-display border-yellow-300 text-red-600';
+            DOM.computerCard.textContent = '?';
+            DOM.computerCard.className = 'card-display border-yellow-300 text-blue-600';
+            DOM.comparisonResultText.textContent = '點擊下方按鈕，決定勝負！';
+            DOM.comparisonResultText.className = 'text-center text-xl font-bold p-3 rounded-lg bg-white text-gray-800 shadow-inner';
+            DOM.startCompareButton.classList.remove('hidden');
+            DOM.comparisonCloseButton.classList.add('hidden');
+            
+            // 暫停主遊戲抽牌
+            DOM.drawButton.disabled = true;
+        }
+
+        /**
+         * 開始比大小遊戲。
+         * Starts the comparison game.
+         */
+        window.startComparison = function() {
+            DOM.startCompareButton.classList.add('hidden');
+
+            const playerRankValue = Math.floor(Math.random() * 13) + 2; 
+            const computerRankValue = Math.floor(Math.random() * 13) + 2; 
+
+            const playerCardData = CARD_RANKS[playerRankValue];
+            const computerCardData = CARD_RANKS[computerRankValue];
+
+            DOM.playerCard.textContent = playerCardData.name;
+            DOM.computerCard.textContent = computerCardData.name;
+            
+            let resultText = '';
+            let winStatus = false;
+            let resultClass = 'text-center text-2xl font-bold p-3 rounded-lg text-white ';
+
+            if (playerRankValue > computerRankValue) {
+                resultText = '🏆 獲勝！請準備刮刮樂！';
+                resultClass += 'bg-green-600';
+                winStatus = true;
+            } else if (playerRankValue < computerRankValue) {
+                resultText = '😥 抱歉，電腦的牌面更大。';
+                resultClass += 'bg-red-600';
+            } else {
+                resultText = '🤝 平手！';
+                resultClass += 'bg-yellow-600';
+            }
+
+            // 更新顏色顯示
+            DOM.playerCard.classList.add(playerRankValue > computerRankValue ? 'text-red-600' : 'text-blue-600');
+            DOM.computerCard.classList.add(computerRankValue > playerRankValue ? 'text-red-600' : 'text-blue-600');
+            
+            DOM.comparisonResultText.textContent = resultText;
+            DOM.comparisonResultText.className = resultClass;
+            
+            // 重置點數
+            currentPoints = 0;
+
+            // 處理後續流程
+            setTimeout(() => {
+                if (winStatus) {
+                    DOM.comparisonModal.classList.add('hidden');
+                    launchScratchModal(); // 獲勝，進入刮刮樂
+                } else {
+                    DOM.comparisonCloseButton.classList.remove('hidden'); // 失敗，直接關閉
+                }
+            }, 1500);
+        }
+        
+        // --- 刮刮樂 Canvas 互動邏輯 ---
+        
+        /**
+         * 啟動刮刮樂 Modal
+         * Launches the scratch-off modal.
+         */
+        function launchScratchModal() {
+            DOM.scratchModal.classList.remove('hidden');
+            DOM.scratchCloseButton.classList.add('hidden');
+            
+            // 決定刮刮樂獎勵結果
+            prizeWon = determineScratchPrize();
+            
+            // 設定獎勵文字顯示 (在 Canvas 底下)
+            DOM.prizeDisplay.innerHTML = `
+                <div class="space-y-2 text-center">
+                    <p class="text-xl font-semibold text-gray-800">您抽到的獎項是：</p>
+                    <span class="text-5xl font-black ${prizeWon.isBigWin ? 'text-red-700' : 'text-green-700'}">${prizeWon.name}</span>
+                </div>
+            `;
+            
+            // 初始化 Canvas
+            setupScratchCanvas();
+        }
+
+        /**
+         * 決定刮刮樂的獎項
+         * Determines the prize for the scratch-off ticket based on probability.
+         */
+        function determineScratchPrize() {
+            const randomValue = Math.random() * 100;
+            let cumulativeProb = 0;
+            let result = SCRATCH_PRIZES[SCRATCH_PRIZES.length - 1]; 
+
+            for (const prize of SCRATCH_PRIZES) {
+                cumulativeProb += prize.prob;
+                if (randomValue < cumulativeProb) {
+                    result = prize;
+                    break;
+                }
+            }
+            return result;
+        }
+
+        /**
+         * 設定 Canvas 尺寸和繪製覆蓋層
+         * Sets up the canvas size and draws the initial cover layer.
+         */
+        function setupScratchCanvas() {
+            const canvas = DOM.scratchCanvas;
+            
+            // 確保 Canvas 尺寸適應其容器
+            const container = canvas.parentElement;
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+            ctx = canvas.getContext('2d');
+            
+            // 繪製初始覆蓋層
+            drawCover();
+            
+            // 清除上次的事件監聽器並重新綁定
+            canvas.onmousedown = handleScratchStart;
+            canvas.ontouchstart = handleScratchStart;
+            canvas.onmousemove = handleScratchMove;
+            canvas.ontouchmove = handleScratchMove;
+            canvas.onmouseup = handleScratchEnd;
+            canvas.ontouchend = handleScratchEnd;
+        }
+
+        /**
+         * 繪製金屬灰色的覆蓋層
+         * Draws the metallic gray cover layer.
+         */
+        function drawCover() {
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.fillStyle = '#C0C0C0'; // 銀灰色
+            ctx.fillRect(0, 0, DOM.scratchCanvas.width, DOM.scratchCanvas.height);
+            
+            // 加上文字提示 (非必要，但增加趣味性)
+            ctx.fillStyle = '#555555';
+            ctx.font = '24px Inter, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('用滑鼠或手指刮開', DOM.scratchCanvas.width / 2, DOM.scratchCanvas.height / 2);
+        }
+
+        /**
+         * 處理刮的動作 (清除覆蓋層)
+         * Handles the scratching action (clearing the cover layer).
+         */
+        function scratch(x, y) {
+            ctx.globalCompositeOperation = 'destination-out'; // 關鍵！使筆觸清除畫布
+            ctx.lineWidth = 30; // 刮的半徑
+            ctx.lineJoin = ctx.lineCap = 'round';
+            ctx.lineTo(x, y);
+            ctx.stroke();
+        }
+        
+        /**
+         * 將頁面座標轉換為 Canvas 座標
+         * Converts page coordinates to canvas coordinates.
+         */
+        function getCanvasPos(event) {
+            const rect = DOM.scratchCanvas.getBoundingClientRect();
+            let clientX, clientY;
+
+            if (event.touches) {
+                clientX = event.touches[0].clientX;
+                clientY = event.touches[0].clientY;
+            } else {
+                clientX = event.clientX;
+                clientY = event.clientY;
+            }
+
+            return {
+                x: clientX - rect.left,
+                y: clientY - rect.top
+            };
+        }
+
+        /**
+         * 開始刮
+         * Starts the scratching process.
+         */
+        function handleScratchStart(event) {
+            event.preventDefault();
+            isScratching = true;
+            const pos = getCanvasPos(event);
+            ctx.beginPath();
+            ctx.moveTo(pos.x, pos.y);
+        }
+
+        /**
+         * 正在刮
+         * Continues the scratching process.
+         */
+        function handleScratchMove(event) {
+            if (!isScratching) return;
+            event.preventDefault();
+            const pos = getCanvasPos(event);
+            scratch(pos.x, pos.y);
+            checkScratchComplete();
+        }
+
+        /**
+         * 結束刮
+         * Ends the scratching process.
+         */
+        function handleScratchEnd(event) {
+            if (!isScratching) return;
+            event.preventDefault();
+            isScratching = false;
+            checkScratchComplete(true); // 最終檢查
+        }
+
+        /**
+         * 檢查刮開進度
+         * Checks the progress of the scratching.
+         */
+        function checkScratchComplete(force = false) {
+            // 每隔一段時間檢查一次，或是強制檢查
+            if (!force && Math.random() > 0.1) return; 
+
+            const totalPixels = DOM.scratchCanvas.width * DOM.scratchCanvas.height;
+            const imageData = ctx.getImageData(0, 0, DOM.scratchCanvas.width, DOM.scratchCanvas.height);
+            const pixels = imageData.data;
+            let clearedPixels = 0;
+
+            // 檢查透明度 (第四個通道)
+            for (let i = 3; i < pixels.length; i += 4) {
+                if (pixels[i] === 0) { // 完全透明
+                    clearedPixels++;
+                }
+            }
+
+            const percentCleared = clearedPixels / totalPixels;
+
+            if (percentCleared >= SCRATCH_THRESHOLD) {
+                // 自動清除剩餘部分
+                ctx.clearRect(0, 0, DOM.scratchCanvas.width, DOM.scratchCanvas.height);
+                
+                // 移除事件監聽器，防止繼續刮
+                const canvas = DOM.scratchCanvas;
+                canvas.onmousedown = canvas.ontouchstart = null;
+                canvas.onmousemove = canvas.ontouchmove = null;
+                canvas.onmouseup = canvas.ontouchend = null;
+                
+                // 顯示關閉按鈕
+                DOM.scratchCloseButton.classList.remove('hidden');
+                
+                // 根據獎勵決定是否跳出慶祝畫面
+                if (prizeWon.isBigWin) {
+                    // 延遲跳出慶祝畫面
+                    setTimeout(() => {
+                        DOM.scratchModal.classList.add('hidden');
+                        launchWinModal(prizeWon);
+                    }, 500);
+                }
+            }
+        }
+        
+        /**
+         * 顯示豪華中獎 Modal
+         * Displays the celebratory win modal.
+         */
+        function launchWinModal(prize) {
+            DOM.winModal.classList.remove('hidden');
+            DOM.winPrizeText.textContent = `您獲得了 ${prize.name}！`;
+            DOM.winAmount.textContent = prize.isBigWin ? `$${prize.amount}` : prize.name;
+        }
+
+        // 頁面載入時先執行一次，設定初始狀態
+        window.onload = function() {
+            updatePointsDisplay(); 
+        }
+
+    </script>
+</body>
+</html>
